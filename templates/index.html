@@ -44,6 +44,145 @@
             opacity: 0.9;
         }
 
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab {
+            padding: 15px 30px;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            font-size: 1.1em;
+            cursor: pointer;
+            color: #666;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            font-weight: bold;
+        }
+
+        .tab:hover {
+            color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .camera-section {
+            text-align: center;
+        }
+
+        .video-container {
+            position: relative;
+            display: inline-block;
+            margin-bottom: 20px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            background: #000;
+        }
+
+        #videoElement {
+            max-width: 100%;
+            width: 100%;
+            height: auto;
+            display: block;
+            background: #000;
+        }
+
+        #canvasElement {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            object-fit: contain;
+        }
+
+        .camera-controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .camera-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 40px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .camera-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .camera-btn:active {
+            transform: translateY(0);
+        }
+
+        .camera-btn.stop {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        }
+
+        .camera-btn.stop:hover {
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.6);
+        }
+
+        .camera-status {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            color: #666;
+        }
+
+        .live-detections {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .live-detection-item {
+            background: #f8f9fa;
+            padding: 10px 15px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.95em;
+        }
+
+        .live-detection-class {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .live-detection-confidence {
+            color: #666;
+        }
+
         .content {
             padding: 40px;
         }
@@ -232,11 +371,18 @@
     <div class="container">
         <div class="header">
             <h1>🔍 YOLO Image Detection</h1>
-            <p>Upload an image to detect objects using YOLO model</p>
+            <p>Upload an image or use live camera to detect objects using YOLO model</p>
         </div>
 
         <div class="content">
-            <div class="upload-section" id="uploadSection">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('upload')">📸 Upload Image</button>
+                <button class="tab" onclick="switchTab('camera')">📹 Live Camera</button>
+            </div>
+
+            <!-- Upload Tab -->
+            <div id="uploadTab" class="tab-content active">
+                <div class="upload-section" id="uploadSection">
                 <div class="upload-icon">📸</div>
                 <h2>Drop your image here or click to browse</h2>
                 <p style="margin: 20px 0; color: #666;">Supported formats: JPG, PNG, JPEG</p>
@@ -263,6 +409,22 @@
                     <div id="resultsContainer"></div>
                 </div>
             </div>
+
+            <!-- Camera Tab -->
+            <div id="cameraTab" class="tab-content">
+                <div class="camera-section">
+                    <div class="video-container">
+                        <video id="videoElement" autoplay playsinline></video>
+                        <canvas id="canvasElement"></canvas>
+                    </div>
+                    <div class="camera-controls">
+                        <button class="camera-btn" id="startCameraBtn" onclick="startCamera()">Start Camera</button>
+                        <button class="camera-btn stop" id="stopCameraBtn" onclick="stopCamera()" style="display: none;">Stop Camera</button>
+                    </div>
+                    <div class="camera-status" id="cameraStatus">Camera is off</div>
+                    <div class="live-detections" id="liveDetections"></div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -274,6 +436,11 @@
         const resultsContainer = document.getElementById('resultsContainer');
         const loading = document.getElementById('loading');
         const errorMessage = document.getElementById('errorMessage');
+        
+        // Camera variables
+        let videoStream = null;
+        let isProcessing = false;
+        let processingInterval = null;
 
         // Drag and drop functionality
         uploadSection.addEventListener('dragover', (e) => {
@@ -372,6 +539,195 @@
             errorMessage.textContent = message;
             errorMessage.classList.add('active');
         }
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Update tabs
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            if (tabName === 'upload') {
+                document.querySelector('.tab:first-child').classList.add('active');
+                document.getElementById('uploadTab').classList.add('active');
+                // Stop camera if running
+                if (videoStream) {
+                    stopCamera();
+                }
+            } else if (tabName === 'camera') {
+                document.querySelector('.tab:last-child').classList.add('active');
+                document.getElementById('cameraTab').classList.add('active');
+            }
+        }
+
+        // Camera functions
+        async function startCamera() {
+            try {
+                const video = document.getElementById('videoElement');
+                const canvas = document.getElementById('canvasElement');
+                const startBtn = document.getElementById('startCameraBtn');
+                const stopBtn = document.getElementById('stopCameraBtn');
+                const status = document.getElementById('cameraStatus');
+                
+                // Request camera access
+                videoStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'user',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    } 
+                });
+                
+                video.srcObject = videoStream;
+                await video.play();
+                
+                // Set canvas dimensions to match video
+                const setCanvasSize = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                };
+                
+                if (video.readyState >= 1) {
+                    setCanvasSize();
+                } else {
+                    video.addEventListener('loadedmetadata', setCanvasSize, { once: true });
+                }
+                
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-block';
+                status.textContent = 'Camera is active - Processing frames...';
+                status.style.color = '#28a745';
+                
+                // Start processing frames
+                processCameraFrames();
+                
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                showError('Error accessing camera: ' + error.message);
+                document.getElementById('cameraStatus').textContent = 'Camera access denied or not available';
+                document.getElementById('cameraStatus').style.color = '#ff6b6b';
+            }
+        }
+
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            
+            const video = document.getElementById('videoElement');
+            const startBtn = document.getElementById('startCameraBtn');
+            const stopBtn = document.getElementById('stopCameraBtn');
+            const status = document.getElementById('cameraStatus');
+            
+            video.srcObject = null;
+            startBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'none';
+            status.textContent = 'Camera is off';
+            status.style.color = '#666';
+            
+            // Stop processing
+            if (processingInterval) {
+                clearInterval(processingInterval);
+                processingInterval = null;
+            }
+            isProcessing = false;
+            document.getElementById('liveDetections').innerHTML = '';
+        }
+
+        async function processCameraFrames() {
+            if (isProcessing) return;
+            isProcessing = true;
+            
+            const video = document.getElementById('videoElement');
+            const canvas = document.getElementById('canvasElement');
+            const ctx = canvas.getContext('2d');
+            
+            // Process frames every 200ms (5 FPS for performance)
+            processingInterval = setInterval(async () => {
+                if (!videoStream || video.readyState !== video.HAVE_ENOUGH_DATA) return;
+                
+                try {
+                    // Ensure canvas matches video dimensions
+                    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                    }
+                    
+                    // Draw current frame to canvas
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    // Convert canvas to blob
+                    canvas.toBlob(async (blob) => {
+                        if (!blob) return;
+                        
+                        const formData = new FormData();
+                        formData.append('file', blob, 'frame.jpg');
+                        
+                        try {
+                            const response = await fetch('/predict_frame', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            
+                            const data = await response.json();
+                            
+                            if (data.success) {
+                                // Update canvas with annotated frame
+                                const img = new Image();
+                                img.onload = () => {
+                                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                };
+                                img.src = data.annotated_image;
+                                
+                                // Update live detections
+                                updateLiveDetections(data.detections);
+                            }
+                        } catch (error) {
+                            console.error('Error processing frame:', error);
+                        }
+                    }, 'image/jpeg', 0.85);
+                    
+                } catch (error) {
+                    console.error('Error capturing frame:', error);
+                }
+            }, 200); // Process every 200ms
+        }
+
+        function updateLiveDetections(detections) {
+            const container = document.getElementById('liveDetections');
+            
+            if (detections.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #888; padding: 20px;">No objects detected</div>';
+                return;
+            }
+            
+            // Group detections by class and show highest confidence
+            const detectionMap = {};
+            detections.forEach(det => {
+                if (!detectionMap[det.class] || detectionMap[det.class].confidence < det.confidence) {
+                    detectionMap[det.class] = det;
+                }
+            });
+            
+            const sortedDetections = Object.values(detectionMap)
+                .sort((a, b) => b.confidence - a.confidence)
+                .slice(0, 10); // Show top 10
+            
+            container.innerHTML = sortedDetections.map(detection => `
+                <div class="live-detection-item">
+                    <span class="live-detection-class">${detection.class}</span>
+                    <span class="live-detection-confidence">${detection.confidence}%</span>
+                </div>
+            `).join('');
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (videoStream) {
+                stopCamera();
+            }
+        });
     </script>
 </body>
 </html>

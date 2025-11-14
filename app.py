@@ -14,7 +14,7 @@ import base64
 app = FastAPI(title="YOLO Image Detection")
 
 # Load YOLO model (using extra large version - highest accuracy)
-model = YOLO('yolov8x.pt')  # extra large version for highest accuracy
+model = YOLO('yolov8n.pt')  # extra large version for highest accuracy
 
 # Create uploads directory if it doesn't exist
 os.makedirs("uploads", exist_ok=True)
@@ -139,6 +139,55 @@ async def predict_with_image(file: UploadFile = File(...)):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+
+
+@app.post("/predict_frame")
+async def predict_frame(file: UploadFile = File(...)):
+    """
+    Process a single frame from camera and return annotated frame with detections
+    """
+    try:
+        # Read image file
+        contents = await file.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            raise HTTPException(status_code=400, detail="Invalid image file")
+        
+        # Run YOLO prediction
+        results = model(img)
+        
+        # Draw predictions on image
+        annotated_img = results[0].plot()
+        
+        # Convert to base64 for frontend display
+        _, buffer = cv2.imencode('.jpg', annotated_img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        # Extract detections
+        detections = []
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                class_id = int(box.cls[0])
+                class_name = model.names[class_id]
+                confidence = float(box.conf[0])
+                
+                detections.append({
+                    "class": class_name,
+                    "confidence": round(confidence * 100, 2)
+                })
+        
+        return JSONResponse({
+            "success": True,
+            "annotated_image": f"data:image/jpeg;base64,{img_base64}",
+            "detections": detections,
+            "total_detections": len(detections)
+        })
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing frame: {str(e)}")
 
 
 if __name__ == "__main__":
