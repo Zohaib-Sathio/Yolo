@@ -3,13 +3,33 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
-from ultralytics import YOLO
+import torch
 import cv2
 import numpy as np
 from PIL import Image
 import io
 import os
 import base64
+
+# Fix PyTorch 2.6+ serialization issue with YOLO models
+# Patch torch.load to allow loading YOLO models (which contain custom classes)
+_original_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    # If weights_only is not explicitly set, default to False for YOLO compatibility
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+torch.load = _patched_torch_load
+
+# Try to add safe globals (PyTorch 2.6+ recommended approach)
+try:
+    import ultralytics.nn.tasks
+    if hasattr(torch.serialization, 'add_safe_globals'):
+        torch.serialization.add_safe_globals([ultralytics.nn.tasks.DetectionModel])
+except (ImportError, AttributeError):
+    pass
+
+from ultralytics import YOLO
 
 app = FastAPI(title="YOLO Image Detection")
 
