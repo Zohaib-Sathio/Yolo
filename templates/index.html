@@ -100,6 +100,7 @@
             height: auto;
             display: block;
             background: #000;
+            border-radius: 15px;
         }
 
         #canvasElement {
@@ -109,7 +110,8 @@
             width: 100%;
             height: 100%;
             pointer-events: none;
-            object-fit: contain;
+            display: block;
+            border-radius: 15px;
         }
 
         .camera-controls {
@@ -414,8 +416,8 @@
             <div id="cameraTab" class="tab-content">
                 <div class="camera-section">
                     <div class="video-container">
-                        <video id="videoElement" autoplay playsinline></video>
-                        <canvas id="canvasElement"></canvas>
+                        <video id="videoElement" autoplay playsinline muted></video>
+                        <canvas id="canvasElement" style="display: none;"></canvas>
                     </div>
                     <div class="camera-controls">
                         <button class="camera-btn" id="startCameraBtn" onclick="startCamera()">Start Camera</button>
@@ -501,6 +503,10 @@
                 const data = await response.json();
 
                 if (data.success) {
+                    // Display annotated image with bounding boxes
+                    if (data.annotated_image) {
+                        imagePreview.src = data.annotated_image;
+                    }
                     displayResults(data.detections);
                 } else {
                     showError('Failed to process image');
@@ -568,6 +574,11 @@
                 const stopBtn = document.getElementById('stopCameraBtn');
                 const status = document.getElementById('cameraStatus');
                 
+                // Check if getUserMedia is available
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('Camera API not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.');
+                }
+                
                 // Request camera access
                 videoStream = await navigator.mediaDevices.getUserMedia({ 
                     video: { 
@@ -578,19 +589,25 @@
                 });
                 
                 video.srcObject = videoStream;
+                video.style.display = 'block'; // Ensure video is visible initially
                 await video.play();
                 
                 // Set canvas dimensions to match video
                 const setCanvasSize = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
+                    if (video.videoWidth > 0 && video.videoHeight > 0) {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        // Canvas stays hidden until first annotated frame arrives
+                    }
                 };
                 
-                if (video.readyState >= 1) {
+                // Wait for video metadata
+                video.addEventListener('loadedmetadata', () => {
                     setCanvasSize();
-                } else {
-                    video.addEventListener('loadedmetadata', setCanvasSize, { once: true });
-                }
+                }, { once: true });
+                
+                // Also try setting size after a short delay
+                setTimeout(setCanvasSize, 100);
                 
                 startBtn.style.display = 'none';
                 stopBtn.style.display = 'inline-block';
@@ -615,11 +632,14 @@
             }
             
             const video = document.getElementById('videoElement');
+            const canvas = document.getElementById('canvasElement');
             const startBtn = document.getElementById('startCameraBtn');
             const stopBtn = document.getElementById('stopCameraBtn');
             const status = document.getElementById('cameraStatus');
             
             video.srcObject = null;
+            video.style.display = 'block';
+            canvas.style.display = 'none';
             startBtn.style.display = 'inline-block';
             stopBtn.style.display = 'none';
             status.textContent = 'Camera is off';
@@ -653,7 +673,7 @@
                         canvas.height = video.videoHeight;
                     }
                     
-                    // Draw current frame to canvas
+                    // Draw current frame to canvas for sending to API
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                     
                     // Convert canvas to blob
@@ -669,19 +689,34 @@
                                 body: formData
                             });
                             
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            
                             const data = await response.json();
                             
-                            if (data.success) {
+                            if (data.success && data.annotated_image) {
                                 // Update canvas with annotated frame
                                 const img = new Image();
                                 img.onload = () => {
+                                    // Clear and draw annotated image on canvas
                                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                                     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                    // Show canvas and hide video to display annotated frames
+                                    canvas.style.display = 'block';
+                                    video.style.display = 'none';
+                                };
+                                img.onerror = (err) => {
+                                    console.error('Error loading annotated image:', err);
                                 };
                                 img.src = data.annotated_image;
                                 
                                 // Update live detections
-                                updateLiveDetections(data.detections);
+                                if (data.detections) {
+                                    updateLiveDetections(data.detections);
+                                }
+                            } else {
+                                console.warn('Invalid response from server:', data);
                             }
                         } catch (error) {
                             console.error('Error processing frame:', error);

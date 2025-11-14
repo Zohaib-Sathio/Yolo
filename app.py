@@ -74,6 +74,13 @@ async def predict_image(file: UploadFile = File(...)):
         # Run YOLO prediction
         results = model(img)
         
+        # Draw predictions on image with bounding boxes and labels
+        annotated_img = results[0].plot()
+        
+        # Convert annotated image to base64 for frontend display
+        _, buffer = cv2.imencode('.jpg', annotated_img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
+        
         # Extract detections
         detections = []
         for result in results:
@@ -101,7 +108,8 @@ async def predict_image(file: UploadFile = File(...)):
         return JSONResponse({
             "success": True,
             "detections": detections,
-            "total_detections": len(detections)
+            "total_detections": len(detections),
+            "annotated_image": f"data:image/jpeg;base64,{img_base64}"
         })
     
     except Exception as e:
